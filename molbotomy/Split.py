@@ -1,11 +1,11 @@
 """
 Code to split a set of molecules
 
-Methods:
-    - random
-    - scaffold + a distance: Find all scaffold sets and then get all the scaffolds that are maximally distanced from the
-      rest untill we have enough molecules in our holdout set
-    - clustering
+- Splitter: Splits a list of SMILES strings into a train and test set based on scaffolds, clustering, or at random
+- random_split: splits a list at random
+- scaffold_split: splits molecules based on their scaffold in three modes: random, balanced, and out-of-distribution
+- cluster_split: splits molecules based on clustering in three modes: random, balanced, and out-of-distribution
+
 
 Derek van Tilborg
 Eindhoven University of Technology
@@ -13,8 +13,7 @@ Jan 2024
 """
 
 import numpy as np
-from rdkit import Chem
-from molbotomy.utils import mols_to_scaffolds, smiles_to_mols, map_scaffolds
+from molbotomy.utils import smiles_to_mols, map_scaffolds
 from molbotomy.Distances import MolecularDistanceMatrix
 from molbotomy.Clustering import ClusterMolecularDistanceMatrix
 from warnings import warn
@@ -22,16 +21,43 @@ import sys
 
 
 class Splitter:
+    """
+    Splits a list of SMILES strings into a train and test set
+    Molecules can be split based on molecular scaffolds, clustering, or at random
+    Splitting is done in three modes, random, balanced, and out-of-distribution (OOD)
+
+    Scaffold splitting
+        - random: sets of scaffolds are randomly distributed between train and test, meaning that all molecules that
+            belong to a set of scaffolds are in either the train or test set together
+        - balanced: sets of scaffolds are distributed between train and test so that the test set molecules are
+            maximally representative of the train set. Here too, molecules that share the same scaffold are kept
+            together in either the train or test set.
+        - OOD: sets of scaffolds are distributed between train and test so that the test set molecules are maximally
+            different of the train set (the opposite of balanced). Here too, molecules that share the same scaffold are
+            kept together in either the train or test set.
+
+    Cluster splitting:
+        - random: clusters of molecules are randomly distributed between train and test, meaning that all molecules that
+            belong to a cluster are in either the train or test set together
+        - balanced: clusters of molecules are distributed between train and test so that the test set molecules are
+            maximally representative of the train set. Here too, molecules that share the same cluster are kept
+            together in either the train or test set.
+        - OOD: clusters of molecules are distributed between train and test so that the test set molecules are maximally
+            different of the train set (the opposite of balanced). Here too, molecules that share the same cluster are
+            kept together in either the train or test set.
+
+    Random splitting:
+        - random: molecules are distributes at random between the train and test set.
+
+    :param smiles: List of SMILES strings
+    :param sanitize_smiles: toggle SMILES sanitization
+    """
     split_methods = ['random', 'scaffold', 'cluster']
     modes = ['random', 'balanced', 'OOD']
     cluster_methods = [None, ]
 
     def __init__(self, smiles, sanitize_smiles: bool = True):
-        """
-        :param smiles: List of SMILES strings
-        :param sanitize_smiles: toggle SMILES sanitization
 
-        """
         self.mols = smiles_to_mols(smiles, sanitize=sanitize_smiles)
         self.mode = None
         self.split_method = None
@@ -182,32 +208,45 @@ def cluster_split(mols: list, mode: str = 'random', n_clusters: int = 10, ratio:
     import kmedoids
 
     tani = MolecularDistanceMatrix().compute_dist(mols)
-    clustering = ClusterMolecularDistanceMatrix(clustering_method='kmedoids')
-    clustering = kmedoids.fasterpam(tani.astype(float), n_clusters, random_state=seed)
+    clustering = ClusterMolecularDistanceMatrix(clustering_method='kmedoids', n_clusters=n_clusters, seed=seed)
+    clustering.fit(tani)
 
-    cluster_membership = clustering.labels
+    cluster_membership = clustering.labels_
     cluster_map = {i: np.where(cluster_membership == i)[0] for i in range(n_clusters)}
 
-    print('Finding similarities between scaffold sets', flush=True, file=sys.stderr)
-    # For each group of scaffolds, find the MEAN distance to all other clusters
-    cluster_sims = np.zeros((n_clusters, n_clusters), dtype=np.float16)
+    if mode == 'random':
+        rng = np.random.default_rng(seed=seed)
+        set_order = np.arange(len(cluster_map))
+        rng.shuffle(set_order)
 
-    for i, (k, v) in enumerate(cluster_map.items()):
-        for j, (k_, v_) in enumerate(cluster_map.items()):
-            cluster_sims[i, j] = np.mean(tani[v][:, v_])
+        train_mols, test_mols = [], []
+        for i in set_order:
+            new_mols = np.where(cluster_membership == i)[0].tolist()
+            if len(test_mols) + len(new_mols) <= round(len(mols) * ratio):
+                test_mols.extend(new_mols)
+            else:
+                break
+    else:
+        print('Finding similarities between scaffold sets', flush=True, file=sys.stderr)
+        # For each group of scaffolds, find the MEAN distance to all other clusters
+        cluster_sims = np.zeros((n_clusters, n_clusters), dtype=np.float16)
 
-    # Find the scaffold clusters with the lowest average similarity to all other clusters
-    sim_order = np.argsort(np.mean(cluster_sims, 0))
-    if mode == 'balanced':  # when mode == balanced, we want to use the highest average similarity instead
-        sim_order = np.argsort(np.mean(cluster_sims, 0))[::-1]
+        for i, (k, v) in enumerate(cluster_map.items()):
+            for j, (k_, v_) in enumerate(cluster_map.items()):
+                cluster_sims[i, j] = np.mean(tani[v][:, v_])
 
-    train_mols, test_mols = [], []
-    for i in sim_order:
-        new_scaffs = np.where(cluster_membership == i)[0].tolist()
-        if len(test_mols) + len(new_scaffs) <= round(len(mols) * ratio):
-            test_mols.extend(new_scaffs)
-        else:
-            break
+        # Find the scaffold clusters with the lowest average similarity to all other clusters
+        sim_order = np.argsort(np.mean(cluster_sims, 0))
+        if mode == 'balanced':  # when mode == balanced, we want to use the highest average similarity instead
+            sim_order = np.argsort(np.mean(cluster_sims, 0))[::-1]
+
+        train_mols, test_mols = [], []
+        for i in sim_order:
+            new_mols = np.where(cluster_membership == i)[0].tolist()
+            if len(test_mols) + len(new_mols) <= round(len(mols) * ratio):
+                test_mols.extend(new_mols)
+            else:
+                break
 
     # the train molecules are molecules not in the test set
     train_mols = [i for i in range(len(mols)) if i not in test_mols]
