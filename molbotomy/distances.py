@@ -15,7 +15,7 @@ Jan 2024
 
 import numpy as np
 from Levenshtein import distance as editdistance
-from molbotomy.Descriptors import mols_to_ecfp, mols_to_maccs, mols_to_descriptors
+from molbotomy.descriptors import mols_to_ecfp, mols_to_maccs, mols_to_descriptors
 from tqdm.auto import tqdm
 from typing import Callable, Union
 from warnings import warn

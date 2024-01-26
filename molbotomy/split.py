@@ -14,17 +14,20 @@ Jan 2024
 
 import numpy as np
 from molbotomy.utils import smiles_to_mols, map_scaffolds
-from molbotomy.Distances import MolecularDistanceMatrix
-from molbotomy.Clustering import ClusterMolecularDistanceMatrix
-from warnings import warn
+from molbotomy.distances import MolecularDistanceMatrix
+from molbotomy.clustering import ClusterMolecularDistanceMatrix
 import sys
 
 
 class Splitter:
     """
-    Splits a list of SMILES strings into a train and test set
-    Molecules can be split based on molecular scaffolds, clustering, or at random
-    Splitting is done in three modes, random, balanced, and out-of-distribution (OOD)
+    Splits a list of SMILES strings into a train and test set. Molecules can be split based on molecular scaffolds,
+    clustering, or at random. Splitting is done in three modes, random, balanced, and out-of-distribution (OOD)
+
+    :param split_method: 'random', 'scaffold', 'cluster' (default = 'random')
+    :param mode: 'random', 'balanced' or 'OOD' (default = 'random')
+    :param seed: random seed (default = 42)
+    :param n_clusters: number of clusters used for clustering (default = 20)
 
     Scaffold splitting
         - random: sets of scaffolds are randomly distributed between train and test, meaning that all molecules that
@@ -54,52 +57,42 @@ class Splitter:
     """
     split_methods = ['random', 'scaffold', 'cluster']
     modes = ['random', 'balanced', 'OOD']
-    cluster_methods = [None, ]
 
-    def __init__(self, smiles, sanitize_smiles: bool = True):
-
-        self.mols = smiles_to_mols(smiles, sanitize=sanitize_smiles)
-        self.mode = None
-        self.split_method = None
+    def __init__(self, split_method: str = 'random', mode: str = 'balanced', seed: int = 42, n_clusters: int = 20):
+        self.seed = seed
+        self.n_clusters = n_clusters
         self.train_idx = None
         self.test_idx = None
+        if mode == 'ood':
+            mode = 'OOD'
 
-    def split(self, split_method: str = 'random', mode: str = 'balanced', ratio: float = 0.2, seed: int = 42,
-              cluster_method: str = None,
-              progressbar: bool = True, **kwargs) -> (np.ndarray, np.ndarray):
-        """
-
-        :param split_method:
-        :param mode: 'balanced' or 'OOD' (default = 'balanced'). 'balanced' will try to produce a test
-        split that is representative of the train split, whereas 'OOD' will produce a test split that is different from
-        the train split.
-        :param ratio: test split ratio (default = 0.2, splits off 20% of the data into a test set)
-        :param seed: random seed (default = 42)
-        :param cluster_method:
-        :param progressbar: toggles progressbar (default = True)
-        :param kwargs:
-        :return: train indices, test indices
-        """
         assert mode in self.modes, f"method '{mode}' is not supported. Pick from: {self.modes}"
         assert split_method in self.split_methods, f"method '{split_method}' is not supported. Pick from: " \
                                                    f"{self.split_methods}"
         self.mode = mode
         self.split_method = split_method
 
-        if split_method == 'random':
-            if self.mode != 'random':
-                warn("random splits for mode='OOD' or mode='balanced' will be the same as for mode='random'")
-            self.train_idx, self.test_idx = random_split(self.mols, ratio=ratio, seed=seed)
+    def split(self, smiles, ratio: float = 0.2, sanitize_smiles: bool = True, **kwargs) -> (np.ndarray, np.ndarray):
+        """ Split a list of SMILES strings
 
-        elif split_method == 'scaffold':
-            self.train_idx, self.test_idx = scaffold_split(self.mols, mode=self.mode, ratio=ratio, seed=seed,
-                                                           progressbar=progressbar)
+        :param smiles: List of SMILES strings
+        :param ratio: test split ratio (default = 0.2, splits off 20% of the data into a test set)
+        :param sanitize_smiles: toggle SMILES sanitization
+        :param kwargs: keyword args given to the splitting method
+        :return: train indices, test indices
+        """
 
-        elif split_method == 'cluster':
-            assert cluster_method in self.cluster_methods, f"method '{cluster_method}' is not supported. " \
-                                                           f"Pick from: {self.cluster_methods}"
+        mols = smiles_to_mols(smiles, sanitize=sanitize_smiles)
 
-            self.train_idx, self.test_idx = cluster_split()
+        if self.split_method == 'random':
+            self.train_idx, self.test_idx = random_split(mols, ratio=ratio, seed=self.seed, **kwargs)
+
+        elif self.split_method == 'scaffold':
+            self.train_idx, self.test_idx = scaffold_split(mols, mode=self.mode, ratio=ratio, seed=self.seed, **kwargs)
+
+        elif self.split_method == 'cluster':
+            self.train_idx, self.test_idx = cluster_split(mols, mode=self.mode, n_clusters=self.n_clusters, ratio=ratio,
+                                                          seed=self.seed, **kwargs)
 
         return self.train_idx, self.test_idx
 
