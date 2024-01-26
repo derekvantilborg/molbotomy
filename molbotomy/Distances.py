@@ -15,35 +15,58 @@ Jan 2024
 
 import numpy as np
 from Levenshtein import distance as editdistance
+from molbotomy.Descriptors import mols_to_ecfp, mols_to_maccs, mols_to_descriptors
 from tqdm.auto import tqdm
 from typing import Callable, Union
 from warnings import warn
+import sys
 
 
 class MolecularDistanceMatrix:
     distances = ['euclidean', 'tanimoto', 'edit']
+    descriptors = ['ecfp', 'maccs', 'physchem']
+    is_sim = False
 
-    def __init__(self, mols):
-        self.mols = mols
+    def __init__(self, descriptor: Union[str, Callable] = 'ecfp', distance: Union[str, Callable] = 'tanimoto'):
+        self.descriptor = descriptor
+        self.distance = distance
         self.dist = None
 
-    def compute_dist(self, descriptor_func: Callable, distance: Union[str, Callable] = 'euclidean',
-                     progressbar: bool = True, **kwargs) -> np.ndarray:
-
-        x = descriptor_func(self.mols, **kwargs)
+        if descriptor == 'ecfp':
+            self.descriptor = mols_to_ecfp
+        elif descriptor == 'maccs':
+            self.descriptor = mols_to_maccs
+        elif descriptor == 'physchem':
+            self.descriptor = mols_to_descriptors
+        elif type(descriptor) is str:
+            warn(f"distance '{descriptor}' is not supported by default (choose from {self.descriptors}). "
+                 f"Otherwise, supply your own callable that takes in the output from descriptor_func to compute a "
+                 f"square distance matrix")
 
         if distance == 'euclidean':
-            self.dist = euclideandistance_matrix(x)
+            self.distance = euclideandistance_matrix
+            self.is_sim = False
         elif distance == 'tanimoto':
-            self.dist = 1 - tanimoto_matrix(x, progressbar=progressbar)
+            self.distance = tanimoto_matrix
+            self.is_sim = True
         elif distance == 'edit':
-            self.dist = editdistance_matrix(x)
+            self.distance = editdistance_matrix
+            self.is_sim = False
+        elif type(distance) is str:
+            warn(f"distance '{distance}' is not supported by default (choose from {self.distances}). Otherwise, "
+                 f"supply your own callable that takes in the output from descriptor_func to compute a "
+                 f"square distance matrix")
+
+    def compute_dist(self, mols, **kwargs) -> np.ndarray:
+
+        print(f'Computing {self.distance} distance between {self.descriptor}', flush=True, file=sys.stderr)
+
+        x = self.descriptor(mols, **kwargs)
+
+        if self.is_sim:
+            self.dist = 1 - self.distance(x)
         else:
-            if type(distance) is str:
-                warn(f"distance '{distance}' is not supported by default (choose from {self.distances}). Otherwise, "
-                     f"supply your own callable that takes in the output from descriptor_func to compute a "
-                     f"square distance matrix")
-            self.dist = distance(x)
+            self.dist = self.distance(x)
 
         return self.dist
 
