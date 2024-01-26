@@ -12,12 +12,11 @@ Eindhoven University of Technology
 Jan 2024
 """
 
-
 import numpy as np
 from rdkit import Chem
 from molbotomy.utils import mols_to_scaffolds, smiles_to_mols, map_scaffolds
-from molbotomy.Descriptors import mols_to_ecfp
-from molbotomy.Distances import tanimoto_matrix
+from molbotomy.Distances import MolecularDistanceMatrix
+from molbotomy.Clustering import ClusterMolecularDistanceMatrix
 from warnings import warn
 import sys
 
@@ -113,7 +112,6 @@ def scaffold_split(mols: list, mode: str = 'random', ratio: float = 0.2, progres
     :return: train indices, test indices
     """
     # Get scaffolds
-
     print('Looking for scaffolds', flush=True, file=sys.stderr)
     scaffolds, scaff_map = map_scaffolds(mols)
 
@@ -136,7 +134,7 @@ def scaffold_split(mols: list, mode: str = 'random', ratio: float = 0.2, progres
                 break
     else:
         # Tanimoto similarity between all scaffolds
-        tani_scaff = tanimoto_matrix(mols_to_ecfp(scaffolds), progressbar=progressbar)
+        tani_scaff = MolecularDistanceMatrix().compute_dist(scaffolds)
 
         print('Finding similarities between scaffold sets', flush=True, file=sys.stderr)
         # For each group of scaffolds, find the MEAN distance to all other clusters
@@ -164,10 +162,54 @@ def scaffold_split(mols: list, mode: str = 'random', ratio: float = 0.2, progres
     return np.array(train_mols), np.array(test_mols)
 
 
-def cluster_split():
-    return None, None
+def cluster_split(mols: list, mode: str = 'random', n_clusters: int = 10, ratio: float = 0.2, seed: int = 42)\
+        -> (np.ndarray, np.ndarray):
+    """ ... TODO
 
 
+    Generates an out-of-distribution split based on clustering. Clusters with the largest average dissimilarity to all
+    other scaffold sets (based on Tanimoto similarity on ECFPs) are taken as the test set.
 
+    :param mols: RDKit mol objects, e.g., as obtained through smiles_to_mols()
+    :param mode: 'random', 'balanced' or 'OOD'. 'random' distributes random scaffold sets over train and train,
+    'balanced' takes the most similar scaffold sets for the test set and 'OOD' takes the least similar scaffold sets.
+    :param ratio: test split ratio (default = 0.2, splits off a maximum of 20% of the data into a test set). Exact size
+    of the split depends on scaffold set sizes.
+    :param progressbar: toggles progressbar (default = True)
+    :param seed: random seed (default = 42)
+    :return: train indices, test indices
+    """
+    import kmedoids
 
+    tani = MolecularDistanceMatrix().compute_dist(mols)
+    clustering = ClusterMolecularDistanceMatrix(clustering_method='kmedoids')
+    clustering = kmedoids.fasterpam(tani.astype(float), n_clusters, random_state=seed)
 
+    cluster_membership = clustering.labels
+    cluster_map = {i: np.where(cluster_membership == i)[0] for i in range(n_clusters)}
+
+    print('Finding similarities between scaffold sets', flush=True, file=sys.stderr)
+    # For each group of scaffolds, find the MEAN distance to all other clusters
+    cluster_sims = np.zeros((n_clusters, n_clusters), dtype=np.float16)
+
+    for i, (k, v) in enumerate(cluster_map.items()):
+        for j, (k_, v_) in enumerate(cluster_map.items()):
+            cluster_sims[i, j] = np.mean(tani[v][:, v_])
+
+    # Find the scaffold clusters with the lowest average similarity to all other clusters
+    sim_order = np.argsort(np.mean(cluster_sims, 0))
+    if mode == 'balanced':  # when mode == balanced, we want to use the highest average similarity instead
+        sim_order = np.argsort(np.mean(cluster_sims, 0))[::-1]
+
+    train_mols, test_mols = [], []
+    for i in sim_order:
+        new_scaffs = np.where(cluster_membership == i)[0].tolist()
+        if len(test_mols) + len(new_scaffs) <= round(len(mols) * ratio):
+            test_mols.extend(new_scaffs)
+        else:
+            break
+
+    # the train molecules are molecules not in the test set
+    train_mols = [i for i in range(len(mols)) if i not in test_mols]
+
+    return np.array(train_mols), np.array(test_mols)
