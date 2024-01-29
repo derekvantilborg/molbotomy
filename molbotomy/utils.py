@@ -6,7 +6,7 @@ A collection of utility functions
 - mols_to_smiles: Convert a list of RDkit molecules back into SMILES strings
 - mols_to_scaffolds: Convert a list of RDKit molecules objects into scaffolds (bismurcko or bismurcko_generic)
 - map_scaffolds: Find which molecules share the same scaffold
-
+- smiles_tokenizer: tokenize a SMILES strings into individual characters
 
 Derek van Tilborg
 Eindhoven University of Technology
@@ -16,6 +16,7 @@ Jan 2024
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from collections import defaultdict
+import re
 
 
 def canonicalize_smiles(smiles: list[str]) -> list[str]:
@@ -86,5 +87,27 @@ def map_scaffolds(mols: list) -> (list, dict[str, list[int]]):
     return scaffolds, uniques
 
 
+def smiles_tokenizer(smiles: str, extra_patterns: list[str] = None) -> list[str]:
+    """ Tokenize a SMILES. By default, we use the base SMILES grammar tokens and the reactive nonmetals H, C, N, O, F,
+    P, S, Cl, Se, Br, I:
 
+    '(\\[|\\]|Cl|Se|se|Br|H|C|c|N|n|O|o|F|P|p|S|s|I|\\(|\\)|\\.|=|#|-|\\+|\\\\|\\/|:|~|@|\\?|>|\\*|\\$|\\%\\d{2}|\\d)'
 
+    :param smiles: SMILES string
+    :param extra_patterns: extra tokens to consider (default = None)
+        e.g. metalloids: ['Si', 'As', 'Te', 'te', 'B', 'b']  (in ChEMBL33: B+b=0.23%, Si=0.13%, As=0.01%, Te+te=0.01%).
+        Mind you that the order matters. If you place 'C' before 'Cl', all Cl tokens will actually be tokenized as C,
+        meaning that subsets should always come after superset strings, aka, place two letter elements first in the list.
+    :return: list of tokens extracted from the smiles string in their original order
+    """
+    base_smiles_patterns = "(\[|\]|insert_here|\(|\)|\.|=|#|-|\+|\\\\|\/|:|~|@|\?|>|\*|\$|\%\d{2}|\d)"
+    reactive_nonmetals = ['Cl', 'Se', 'se', 'Br', 'H', 'C', 'c', 'N', 'n', 'O', 'o', 'F', 'P', 'p', 'S', 's', 'I']
+
+    # Add all allowed elements to the base SMILES tokens
+    extra_patterns = reactive_nonmetals if extra_patterns is None else extra_patterns + reactive_nonmetals
+    pattern = base_smiles_patterns.replace('insert_here', "|".join(extra_patterns))
+
+    regex = re.compile(pattern)
+    tokens = [token for token in regex.findall(smiles)]
+
+    return tokens
