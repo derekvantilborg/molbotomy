@@ -16,11 +16,15 @@ Jan 2024
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from collections import defaultdict
+from typing import Union
 import re
 
 
-def canonicalize_smiles(smiles: list[str]) -> list[str]:
+def canonicalize_smiles(smiles: Union[str, list[str]]) -> Union[str, list[str]]:
     """ Canonicalize a list of SMILES strings with the RDKit SMILES canonicalization algorithm """
+    if type(smiles) is str:
+        return Chem.MolToSmiles(Chem.MolFromSmiles(smiles))
+
     return [Chem.MolToSmiles(Chem.MolFromSmiles(smi)) for smi in smiles]
 
 
