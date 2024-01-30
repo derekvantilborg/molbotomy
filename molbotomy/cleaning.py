@@ -2,9 +2,12 @@
 Code to clean up SMILES strings
 
 - SpringCleaning: Class to clean up SMILES strings
+- clean_mol: Cleans up a molecule
 - has_unfamiliar_tokens: Check if a SMILES string has unfamiliar tokens
+- flatten_stereochemistry: Get rid of stereochemistry in a SMILES string
 - desalter: Get rid of salt from SMILES strings
-- unrepeat smiles: If a SMILES string contains repeats of the same molecule, return a single one of them
+- remove_common_solvents: Get rid of some of the most commonly used solvents in a SMILES string
+- unrepeat_smiles: If a SMILES string contains repeats of the same molecule, return a single one of them
 - sanitize_mols: Sanitize a molecules with RDkit
 - neutralize_mols: Use pre-defined reactions to neutralize charged molecules
 
@@ -18,6 +21,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 from collections import Counter
 from tqdm.auto import tqdm
+import warnings
 
 
 class SpringCleaning:
@@ -25,7 +29,7 @@ class SpringCleaning:
     Class to clean up SMILES strings.
 
     :param canonicalize: toggles SMILES canonicalization (default = True)
-    :param remove_stereochemistry: toggles stereochemistry removal (default = False)
+    :param flatten_stereochem: toggles stereochemistry removal (default = False)
     :param neutralize: toggles SMILES neutralization (default = True)
     :param check_for_uncommon_atoms: toggles checking for non-ochem atoms (default = True)
     :param desalt: toggles desalting (default = True)
@@ -33,18 +37,13 @@ class SpringCleaning:
     :param unrepeat_mol: toggles removal of duplicated fragments in the same SMILES (default = True)
     :param sanitize: toggles SMILES sanitization (default = True)
     """
-    def __init__(self, canonicalize: bool = True, remove_stereochemistry: bool = False, neutralize: bool = True,
+    def __init__(self, canonicalize: bool = True, flatten_stereochem: bool = False, neutralize: bool = True,
                  check_for_uncommon_atoms: bool = True, desalt: bool = True, remove_solvent: bool = True,
-                 unrepeat_mol: bool = True, sanitize: bool = True):
+                 unrepeat: bool = True, sanitize: bool = True):
 
-        self.remove_stereo = remove_stereochemistry
-        self.canonicalize = canonicalize
-        self.desalt = desalt
-        self.remove_solvent = remove_solvent
-        self.unrepeat_mol = unrepeat_mol
-        self.neutralize = neutralize
-        self.sanitize = sanitize
-        self.check_for_uncommon_atoms = check_for_uncommon_atoms
+        self.settings = {'canonicalize': canonicalize, 'flatten_stereochem': flatten_stereochem, 'neutralize': neutralize,
+                         'check_for_uncommon_atoms': check_for_uncommon_atoms, 'desalt': desalt,
+                         'remove_solvent': remove_solvent, 'unrepeat': unrepeat, 'sanitize': sanitize}
 
         self.problematic_molecules = []
         self.index_problematic_molecules = []
@@ -59,53 +58,13 @@ class SpringCleaning:
 
         for i, smi in tqdm(enumerate(smiles)):
             try:
-                orignial_smi = smi
-                # remove stereochemistry
-                if self.remove_stereo:
-                    smi = smi.replace('@', '')
-
-                # desalt
-                if '.' in smi and self.desalt:
-                    smi = desalter(smi)
-
-                # remove fragments
-                if '.' in smi and self.remove_solvent:
-                    smi = remove_common_solvents(smi)
-
-                # remove duplicated fragments within the same SMILES
-                if '.' in smi and self.unrepeat_mol:
-                    smi = unrepeat_mol(smi)
-
-                # if the SMILES is still fragmented, discard the molecule
-                if '.' in smi:
-                    self._fail(orignial_smi, i, 'fragmented molecule')
-                    continue
-
-                # if the SMILES contains uncommon atoms, discard the molecule
-                if self.check_for_uncommon_atoms:
-                    if has_unfamiliar_tokens(smi):
-                        self._fail(orignial_smi, i, 'unfamiliar token')
-                        continue
-
-                # sanitize the mol
-                if self.sanitize is True:
-                    smi, failed_sanit = sanitize_mol(smi)
-                    if failed_sanit:
-                        self._fail(orignial_smi, i, 'failed sanitization')
-                        continue
-
-                # neutralize it
-                if self.neutralize:
-                    smi = neutralize_mol(smi)
-
-                # finally, canonicalize
-                if self.canonicalize and not self.neutralize:  # the neutralization step already canonicalizes mols
-                    smi = canonicalize_smiles(smi)
-
-                self._success(smi, i)
-
+                cleaned_smi, log = clean_mol(smi, **self.settings)
+                if cleaned_smi is None:
+                    self._fail(smi, i, log)
+                else:
+                    self._success(cleaned_smi, i)
             except:
-                self._fail(orignial_smi, i)
+                self._fail(smi, i, 'unknown')
 
         self.summary()
         return self.cleaned_molecules
@@ -120,9 +79,74 @@ class SpringCleaning:
         self.index_cleaned_molecules.append(index)
 
     def summary(self) -> None:
-        print(f'Parsed {len(self.cleaned_molecules) + len(self.problematic_molecules)} molecules of which '
-              f'{len(self.cleaned_molecules)} successfully.\nFailed to clean {len(self.problematic_molecules)} '
-              f'molecules: {dict(Counter(self.log))}')
+        if len(self.problematic_molecules) > 0:
+            print(f'Parsed {len(self.cleaned_molecules) + len(self.problematic_molecules)} molecules of which '
+                  f'{len(self.cleaned_molecules)} successfully.\nFailed to clean {len(self.problematic_molecules)} '
+                  f'molecules: {dict(Counter(self.log))}')
+        else:
+            print(f'Parsed {len(self.cleaned_molecules)} molecules successfully.')
+
+
+def clean_mol(smiles: str, canonicalize: bool = True, flatten_stereochem: bool = False, neutralize: bool = True,
+                 check_for_uncommon_atoms: bool = True, desalt: bool = True, remove_solvent: bool = True,
+                 unrepeat: bool = True, sanitize: bool = True) -> (str, str):
+    """ Clean a SMILES string by canonicalizing, neutralizing, and getting rid of junk
+
+    :param smiles: SMILES string
+    :param canonicalize: toggles SMILES canonicalization (default = True)
+    :param flatten_stereochem: toggles stereochemistry removal (default = False)
+    :param neutralize: toggles SMILES neutralization (default = True)
+    :param check_for_uncommon_atoms: toggles checking for non-ochem atoms (default = True)
+    :param desalt: toggles desalting (default = True)
+    :param remove_solvent: toggles removal of common solvents (default = True)
+    :param unrepeat: toggles removal of duplicated fragments in the same SMILES (default = True)
+    :param sanitize: toggles SMILES sanitization (default = True)
+
+    :return: cleaned SMILES string, log message
+    """
+
+    # get rid of stereochemistry
+    if flatten_stereochem:
+        smiles = flatten_stereochemistry(smiles)
+
+    # canonicalize
+    if canonicalize:
+        smiles = canonicalize_smiles(smiles)
+        if smiles is None:
+            return None, 'failed canonicalization'
+
+    # desalt
+    if desalt:
+        smiles = desalter(smiles)
+
+    # remove fragments
+    if remove_solvent:
+        smiles = remove_common_solvents(smiles)
+
+    # remove duplicated fragments within the same SMILES
+    if unrepeat:
+        smiles = unrepeat_smiles(smiles)
+
+    # if the SMILES is still fragmented, discard the molecule
+    if '.' in smiles:
+        return None, 'fragmented SMILES'
+
+    # if the SMILES contains uncommon atoms, discard the molecule
+    if check_for_uncommon_atoms:
+        if has_unfamiliar_tokens(smiles):
+            return None, 'unfamiliar token'
+
+    # sanitize the mol
+    if sanitize:
+        smiles = sanitize_mol(smiles)
+        if smiles is None:
+            return None, 'failed sanitization'
+
+    # neutralize it
+    if neutralize:
+        smiles = neutralize_mol(smiles)
+
+    return smiles, 'successful'
 
 
 def has_unfamiliar_tokens(smiles, extra_patterns: list[str] = None) -> bool:
@@ -140,6 +164,11 @@ def has_unfamiliar_tokens(smiles, extra_patterns: list[str] = None) -> bool:
     return len(''.join(tokens)) != len(smiles)
 
 
+def flatten_stereochemistry(smiles: str) -> str:
+    """ Remove stereochemistry from a SMILES string """
+    return smiles.replace('@', '')
+
+
 def desalter(smiles, salt_smarts: str = "[Cl,Na,Mg,Ca,K,Br,Zn,Ag,Al,Li,I,O,N,H]") -> str:
     """ Get rid of salt from SMILES strings, e.g., CCCCCCCCC(O)CCC(=O)[O-].[Na+] -> CCCCCCCCC(O)CCC(=O)[O-]
 
@@ -147,6 +176,9 @@ def desalter(smiles, salt_smarts: str = "[Cl,Na,Mg,Ca,K,Br,Zn,Ag,Al,Li,I,O,N,H]"
     :param salt_smarts: SMARTS pattern to remove all salts (default = "[Cl,Br,Na,Zn,Mg,Ag,Al,Ca,Li,I,O,N,K,H]")
     :return: cleaned SMILES w/o salts
     """
+    if '.' not in smiles:
+        return smiles
+
     from rdkit.Chem.SaltRemover import SaltRemover
     remover = SaltRemover(defnData=salt_smarts)
 
@@ -173,6 +205,8 @@ def remove_common_solvents(smiles: str) -> str:
     :param smiles: SMILES string
     :return: cleaned SMILES
     """
+    if '.' not in smiles:
+        return smiles
 
     solvents = ['O=C(O)C(F)(F)F', 'O=C(O)C(=O)O', 'O=C(O)/C=C/C(=O)O', 'CS(=O)(=O)O', 'O=C(O)/C=C\\C(=O)O', 'CC(=O)O',
                 'O=S(=O)(O)O', 'O=CO', 'CCN(CC)CC', '[O-][Cl+3]([O-])([O-])[O-]', 'O=C(O)C(O)C(O)C(=O)O',
@@ -188,12 +222,15 @@ def remove_common_solvents(smiles: str) -> str:
     return smiles
 
 
-def unrepeat_mol(smiles: str):
+def unrepeat_smiles(smiles: str):
     """ if a SMILES string contains repeats of the same molecule, return a single one of them
 
     :param smiles: SMILES string
     :return: unrepeated SMILES string if repeats were found, else the original SMILES string
     """
+    if '.' not in smiles:
+        return smiles
+
     repeats = set(smiles.split('.'))
     if len(repeats) > 1:
         return smiles
@@ -225,34 +262,27 @@ def _initialise_neutralisation_reactions() -> list[(str, str)]:
     return [(Chem.MolFromSmarts(x), Chem.MolFromSmiles(y, False)) for x, y in patts]
 
 
-def sanitize_mol(smiles: str) -> (str, bool):
+def sanitize_mol(smiles: str) -> str:
     """ Sanitize a molecules with RDkit
 
     :param smiles: SMILES string
-    :return: SMILES string and failed_sanit flag
+    :return: SMILES string if sanitized or None if failed sanitizing
     """
-
-    """ Sanitizes a molecule using rdkit """
-    # init
-    failed_sanit = False
-
-    # == basic checks on SMILES validity
+    # basic checks on SMILES validity
     mol = Chem.MolFromSmiles(smiles)
 
     # flags: Kekulize, check valencies, set aromaticity, conjugation and hybridization
     san_opt = Chem.SanitizeFlags.SANITIZE_ALL
 
-    # check if the conversion to mol was successful, return otherwise
-    if mol is None:
-        failed_sanit = True
-    # sanitization based on the flags (san_opt)
+    if mol is not None:
+        sanitize_error = Chem.SanitizeMol(mol, catchErrors=True, sanitizeOps=san_opt)
+        if sanitize_error:
+            warnings.warn(sanitize_error)
+            return None
     else:
-        sanitize_fail = Chem.SanitizeMol(mol, catchErrors=True, sanitizeOps=san_opt)
-        if sanitize_fail:
-            failed_sanit = True
-            raise ValueError(sanitize_fail)  # returns if failed
+        return None
 
-    return smiles, failed_sanit
+    return Chem.MolToSmiles(mol)
 
 
 def neutralize_mol(smiles: str) -> str:
@@ -277,107 +307,4 @@ def neutralize_mol(smiles: str) -> str:
     smiles = Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True)
 
     return smiles
-
-
-# smiles = pd.read_table("data/chembl_33_chemreps.txt").canonical_smiles.tolist()
-# smiles = cleaner.problematic_molecules
-# cleaner = SpringCleaning()
-# cleaned_smiles = cleaner.clean(smiles[:100])
-
-# long_smi = "CN[C@@H]1[C@H](O[C@H]2[C@H](O[C@@H]3[C@@H](O)[C@H](O)[C@@H](NC(=N)N)[C@H](O)[C@H]3NC(=N)N)O[C@@H](C)[C@]2(O)C=O)O[C@@H](CO)[C@H](O)[C@H]1O.CN[C@@H]1[C@H](O[C@H]2[C@H](O[C@@H]3[C@@H](O)[C@H](O)[C@@H](NC(=N)N)[C@H](O)[C@H]3NC(=N)N)O[C@@H](C)[C@]2(O)C=O)O[C@@H](CO)[C@H](O)[C@H]1O"
-#
-# # not in ChEMBL: Ge, V
-# potential_salts = []
-# for smi in smiles:
-#     if '.' in smi:
-#         potential_salts.append(smi)
-#         print(smi)
-#
-# count*100/len(smiles)
-#
-# alkali_metals = ['Li', 'Na', 'K']  # done
-# alkaline_earth_metals = ['Mg', 'Ca']  # done
-# transition_metals = ['Ag', 'Zn']  # done
-# post_transition_metals = ['Al']  # done
-#
-#
-# # "O=C(O)[C@@H]1CCCN1.OC[C@H]1O[C@@H](c2ccc(F)c(Cc3cc4ccccc4s3)c2)[C@H](O)[C@@H](O)[C@@H]1O"
-# # "Cc1c(CCN)c2cc(F)ccc2n1Cc1ccccc1.Cl"
-# # "CCCCCCCCC(O)CCC(=O)[O-].[Na+]"
-# # "O.O.O.O=C(c1ccc(NS(=O)(=O)c2cccc3cccnc23)cc1)N1CCN(CC2CC2)CC1.O=C(c1ccc(NS(=O)(=O)c2cccc3cccnc23)cc1)N1CCN(CC2CC2)CC1.O=S(=O)(O)O"
-# # "O=C(C[n+]1cccc2ccccc21)C12CC3CC(CC(C3)C1)C2.[Br-]"
-# # "CCC(/C=C1\Oc2ccc(-c3ccccc3)cc2C1CC)=C\c1oc2ccc(-c3ccccc3)cc2[n+]1CC.O=[N+]([O-])[O-]"
-# # "CC[C@H](C)[C@H](NC(=O)[C@H](Cc1c[nH]c2ccccc12)NC(=O)[C@H](CSCC[P+](C)(C)C)NC(=O)[C@H](Cc1c[nH]c2ccccc12)NC(=O)[C@H](Cc1c[nH]c2ccccc12)NC(=O)[C@H](CSCCC[P+](C)(C)C)NC(=O)[C@@H](N)CSCC[P+](C)(C)C)C(=O)N[C@@H](CSCCC[P+](C)(C)C)C(=O)N[C@@H](Cc1c[nH]c2ccccc12)C(N)=O.O=C(O)C(F)(F)F.O=C([O-])C(F)(F)F.O=C([O-])C(F)(F)F.O=C([O-])C(F)(F)F.O=C([O-])C(F)(F)F"
-#
-# remover = SaltRemover(defnData="[Cl,Br,Na,Zn,Mg,Ag,Al,Ca,Li,I,O,N,K,H]")  # N  Ca  Zn  Mg  Ag  Al
-#
-# leftovers = []
-# potential_solvents = []
-# for smi in potential_salts:
-#     # print(smi)
-#     new_smi = Chem.MolToSmiles(remover.StripMol(Chem.MolFromSmiles(smi)))
-#
-#     if '.' in new_smi:
-#         fragments = new_smi.split('.')
-#         idx = np.argmin([len(f) for f in fragments])
-#         potential_solvents.append(fragments[idx])
-#
-#         leftovers.append(new_smi)
-#         print(idx, new_smi)
-#
-# # I.I.OCCC1=CN(Cc2cccc(CN3C=C(CCO)NC3)n2)CN1    Cc1ccc(N2CCNCC2)c(S(=O)(=O)O)c1.O
-#
-# Counter(potential_solvents)
-#
-#
-# mols_w_solv = ['NS(=O)(=O)c1nnc(NS(=O)(=O)c2ccc(-[n+]3ccccc3)cc2)s1.[O-][Cl+3]([O-])([O-])[O-]',
-# 'C[n+]1cccc(NC(=O)c2ccc(C(=O)Nc3ccc[n+](C)c3)cc2)c1.Cc1ccc(S(=O)(=O)[O-])cc1.Cc1ccc(S(=O)(=O)[O-])cc1',
-#                'C[n+]1c(-c2ccc(C=NNC(=O)c3ccc(C(=O)NN=Cc4ccc(-c5cn6ccccc6[n+]5C)cc4)cc3)cc2)cn2ccccc21.Cc1ccc(S(=O)(=O)[O-])cc1.Cc1ccc(S(=O)(=O)[O-])cc1',
-#                ]
-#
-# common_solvents = ['[O-][Cl+3]([O-])([O-])[O-]', 'O=C(O)C(O)C(O)C(=O)O', 'Cc1ccc(S(=O)(=O)[O-])cc1']
-#
-# remover2 = SaltRemover(defnData='[O-][Cl+3]([O-])([O-])[O-] Cc1ccc(S(=O)(=O)[O-])cc1')
-# mol = Chem.MolFromSmiles(mols_w_solv[0])
-# res = remover2.StripMol(mol)
-# print(mols_w_solv[0])
-# print(Chem.MolToSmiles(res))
-#
-#
-#
-#
-# for smi in leftovers:
-#     for solv in common_solvents:
-#         if solv in smi:
-#             print(smi)
-#
-# # solvents
-# # [O-][Cl+3]([O-])([O-])[O-]
-# # O=C(O)C(O)C(O)C(=O)O
-# # Cc1ccc(S(=O)(=O)[O-])cc1
-# # O=C([O-])C(F)(F)F
-# # Cc1ccc(S(=O)(=O)O)cc1
-# # O=C(O)CC(O)(CC(=O)O)C(=O)O
-# # O=[N+]([O-])O
-# # F[B-](F)(F)F
-# # O=S(=O)([O-])C(F)(F)F
-# # F[P-](F)(F)(F)(F)F
-# # O=C(O)CCC(=O)O
-# # O=P(O)(O)O
-# # NCCO
-# # CS(=O)(=O)[O-]
-# # [O-][Cl+3]([O-])([O-])O
-# # COS(=O)(=O)[O-]
-# # NC(CO)(CO)CO
-# # CCO
-# # CN(C)C=O
-# # O=C(O)[C@H](O)[C@@H](O)C(=O)O
-# # C1CCC(NC2CCCCC2)CC1
-# # C
-# # O=S(=O)([O-])O
-# # CNC[C@H](O)[C@@H](O)[C@H](O)[C@H](O)CO
-# # c1ccncc1
-#
-
-
 
