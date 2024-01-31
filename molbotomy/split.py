@@ -72,13 +72,15 @@ class Splitter:
         self.mode = mode
         self.split_method = split_method
 
-    def split(self, smiles, ratio: float = 0.2, sanitize_smiles: bool = True, **kwargs) -> (np.ndarray, np.ndarray):
+    def split(self, smiles, ratio: float = 0.2, sanitize_smiles: bool = True, return_smiles: bool = False, **kwargs) \
+            -> (np.ndarray, np.ndarray):
         """ Split a list of SMILES strings
 
         :param smiles: List of SMILES strings
         :param ratio: test split ratio (default = 0.2, splits off 20% of the data into a test set)
         :param sanitize_smiles: toggle SMILES sanitization
         :param kwargs: keyword args given to the splitting method
+        :param return_smiles: toggles between returning SMILES strings or their indices (default = False)
         :return: train indices, test indices
         """
 
@@ -93,6 +95,9 @@ class Splitter:
         elif self.split_method == 'cluster':
             self.train_idx, self.test_idx = cluster_split(mols, mode=self.mode, n_clusters=self.n_clusters, ratio=ratio,
                                                           seed=self.seed, **kwargs)
+
+        if return_smiles:
+            return list(np.array(smiles)[self.train_idx]), list(np.array(smiles)[self.test_idx])
 
         return self.train_idx, self.test_idx
 
