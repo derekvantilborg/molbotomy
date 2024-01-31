@@ -15,7 +15,9 @@ Jan 2024
 
 import numpy as np
 from Levenshtein import distance as editdistance
+from rdkit.DataStructs import BulkTanimotoSimilarity
 from molbotomy.descriptors import mols_to_ecfp, mols_to_maccs, mols_to_descriptors
+from scipy.spatial.distance import pdist, squareform
 from tqdm.auto import tqdm
 from typing import Callable, Union
 from warnings import warn
@@ -88,8 +90,6 @@ def tanimoto_matrix(fingerprints: list, progressbar: bool = False, fill_diagonal
 
     :return: Tanimoto similarity matrix
     """
-    from rdkit.DataStructs import BulkTanimotoSimilarity
-
     n = len(fingerprints)
 
     X = np.zeros([n, n], dtype=dtype)
@@ -130,7 +130,6 @@ def editdistance_matrix(smiles: list[str], progressbar: bool = False, fill_diago
 
 
 def euclideandistance_matrix(x, fill_diagonal: bool = True):
-    from scipy.spatial.distance import pdist, squareform
 
     X = pdist(x)
     X = squareform(X)
@@ -138,3 +137,4 @@ def euclideandistance_matrix(x, fill_diagonal: bool = True):
         np.fill_diagonal(X, 0)
 
     return X
+
