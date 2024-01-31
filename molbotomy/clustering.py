@@ -26,7 +26,7 @@ class ClusterMolecularDistanceMatrix:
     allowed_methods = ["kmedoids", "affinitypropegation", "spectral", "hierarchical"]
     cluster_algo = None
     clustering = None
-    labels = None
+    labels = labels_ = None
     label_count = None
 
     def __init__(self, clustering_method: str = 'kmedoids', n_clusters: int = 10, seed: int = 42) -> None:
@@ -57,7 +57,7 @@ class ClusterMolecularDistanceMatrix:
         """
 
         self.clustering = self.cluster_algo(dist, n_clusters=self.n_clusters, seed=self.seed, **kwargs)
-        self.labels = self.clustering.labels_
+        self.labels = self.labels_ = self.clustering.labels_
         self.label_count = dict(Counter(self.labels))
 
         return self.clustering.labels_
