@@ -28,11 +28,12 @@ def canonicalize_smiles(smiles: Union[str, list[str]]) -> Union[str, list[str]]:
     return [Chem.MolToSmiles(Chem.MolFromSmiles(smi)) for smi in smiles]
 
 
-def smiles_to_mols(smiles: list[str], sanitize: bool = True) -> list:
+def smiles_to_mols(smiles: list[str], sanitize: bool = True, partial_charges: bool = False) -> list:
     """ Convert a list of SMILES strings to RDkit molecules (and sanitize them)
 
     :param smiles: List of SMILES strings
     :param sanitize: toggles sanitization of the molecule. Defaults to True.
+    :param partial_charges: toggles the computation of partial charges (default = False)
     :return: List of RDKit mol objects
     """
     mols = []
@@ -47,7 +48,9 @@ def smiles_to_mols(smiles: list[str], sanitize: bool = True) -> list:
                 Chem.SanitizeMol(molecule, sanitizeOps=Chem.SanitizeFlags.SANITIZE_ALL ^ flag)
 
         Chem.AssignStereochemistry(molecule, cleanIt=True, force=True)
-        Chem.rdPartialCharges.ComputeGasteigerCharges(molecule)
+
+        if partial_charges:
+            Chem.rdPartialCharges.ComputeGasteigerCharges(molecule)
 
         mols.append(molecule)
 
