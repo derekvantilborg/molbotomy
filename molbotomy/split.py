@@ -74,7 +74,7 @@ def scaffold_split(mols: list, ratio: float = 0.2, seed: int = 42) -> (np.ndarra
     # 1. Distribute large sets between train and test
     test_mols = []
     for i in range(len(big_sets)):
-        if len(test_mols) < testsetsize - bigsetsize:  # Check if we can accomodate another large set
+        if len(test_mols) < testsetsize - bigsetsize:  # Check if we can accommodate another large set
             if rng.choice([True, False], p=[ratio, 1-ratio]):  # decide if this big set will go to train or test
                 # add this big set to the test
                 test_mols.extend(big_sets[-1])
