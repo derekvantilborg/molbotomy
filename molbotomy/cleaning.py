@@ -55,11 +55,17 @@ class SpringCleaning:
         self.cleaned_molecules = []
         self.index_cleaned_molecules = []
 
-    def clean(self, smiles: list[str]):
+    def clean(self, smiles: list[str], progressbar: bool = True):
+        """ Clean a list of SMILES strings
+
+        :param smiles: SMILES that need cleaning
+        :param progressbar: toggles the progressbar
+        :return:
+        """
         if type(smiles) is not list:
             smiles = [smiles]
 
-        for i, smi in tqdm(enumerate(smiles)):
+        for i, smi in tqdm(enumerate(smiles), disable=not progressbar):
             try:
                 cleaned_smi, log = clean_mol(smi, **self.settings)
                 if cleaned_smi is None:
