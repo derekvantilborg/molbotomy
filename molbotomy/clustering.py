@@ -14,6 +14,9 @@ Jan 2024
 
 import numpy as np
 from collections import Counter
+import kmedoids
+from sklearn.cluster import AffinityPropagation
+from sklearn.cluster import AgglomerativeClustering
 
 
 class ClusterMolecularDistanceMatrix:
@@ -67,15 +70,15 @@ class ClusterMolecularDistanceMatrix:
                f"{self.n_clusters}, seed={self.seed})\nlabels: {self.labels}\nlabel count: {self.label_count}"
 
 
-def kmedoids_clustering(dist: np.ndarray, n_clusters: int = 10, seed: int = 42, **kwargs) -> np.ndarray:
+def kmedoids_clustering(dist: np.ndarray, n_clusters: int = 10, seed: int = 42, **kwargs) -> kmedoids:
     """ Perform k-medoids clustering on a pre-computed matrix on molecular distances
 
     :param dist: n x n pairwise distance matrix for n molecules
+    :param n_clusters: number of clusters (default = 10)
     :param seed: random seed (default = 42)
     :param kwargs: arguments passed through to kmedoids.fasterpam()
     :return: cluster membership of each molecule
     """
-    import kmedoids
 
     clustering = kmedoids.fasterpam(dist.astype(float), n_clusters, random_state=seed, **kwargs)
     clustering.labels_ = clustering.labels
@@ -83,7 +86,7 @@ def kmedoids_clustering(dist: np.ndarray, n_clusters: int = 10, seed: int = 42, 
     return clustering
 
 
-def affinitypropegation_clustering(dist: np.ndarray, seed: int = 42, n_clusters=None, **kwargs) -> np.ndarray:
+def affinitypropegation_clustering(dist: np.ndarray, seed: int = 42, n_clusters=None, **kwargs) -> AffinityPropagation:
     """ Perform affinity propegation clustering on a pre-computed matrix on molecular distances. This clustering method
         determines the number of cluster by itself
 
@@ -93,7 +96,6 @@ def affinitypropegation_clustering(dist: np.ndarray, seed: int = 42, n_clusters=
     :param n_clusters: does nothing, here for convention
     :return: cluster membership of each molecule
     """
-    from sklearn.cluster import AffinityPropagation
     A = 1 - dist
 
     clustering = AffinityPropagation(random_state=seed, affinity='precomputed', **kwargs)
@@ -120,7 +122,8 @@ def spectral_clustering(dist: np.ndarray, seed: int = 42, n_clusters: int = 10, 
     return clustering
 
 
-def hierarchical_clustering(dist: np.ndarray, n_clusters: int = 10, linkage: str = 'average', seed=None, **kwargs):
+def hierarchical_clustering(dist: np.ndarray, n_clusters: int = 10, linkage: str = 'average', seed=None, **kwargs) \
+        -> AgglomerativeClustering:
     """ Perform Hierarchical clustering on a pre-computed matrix on molecular distances
 
     :param dist: n x n pairwise distance matrix for n molecules
@@ -131,8 +134,6 @@ def hierarchical_clustering(dist: np.ndarray, n_clusters: int = 10, linkage: str
     :param kwargs: arguments passed through to AgglomerativeClustering()
     :return:
     """
-    from sklearn.cluster import AgglomerativeClustering
-
     clustering = AgglomerativeClustering(n_clusters=n_clusters, linkage=linkage, metric='precomputed', **kwargs)
     clustering.fit(dist)
 

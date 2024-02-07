@@ -22,6 +22,7 @@ from rdkit.Chem.SaltRemover import SaltRemover
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from collections import Counter
+from typing import Union
 from tqdm.auto import tqdm
 import warnings
 
@@ -36,15 +37,15 @@ class SpringCleaning:
     :param check_for_uncommon_atoms: toggles checking for non-ochem atoms (default = True)
     :param desalt: toggles desalting (default = True)
     :param remove_solvent: toggles removal of common solvents (default = True)
-    :param unrepeat_mol: toggles removal of duplicated fragments in the same SMILES (default = True)
+    :param unrepeat: toggles removal of duplicated fragments in the same SMILES (default = True)
     :param sanitize: toggles SMILES sanitization (default = True)
     """
     def __init__(self, canonicalize: bool = True, flatten_stereochem: bool = False, neutralize: bool = True,
                  check_for_uncommon_atoms: bool = True, desalt: bool = True, remove_solvent: bool = True,
                  unrepeat: bool = True, sanitize: bool = True):
 
-        self.settings = {'canonicalize': canonicalize, 'flatten_stereochem': flatten_stereochem, 'neutralize': neutralize,
-                         'check_for_uncommon_atoms': check_for_uncommon_atoms, 'desalt': desalt,
+        self.settings = {'canonicalize': canonicalize, 'flatten_stereochem': flatten_stereochem, 'desalt': desalt,
+                         'neutralize': neutralize, 'check_for_uncommon_atoms': check_for_uncommon_atoms,
                          'remove_solvent': remove_solvent, 'unrepeat': unrepeat, 'sanitize': sanitize}
 
         self.problematic_molecules = []
@@ -90,8 +91,8 @@ class SpringCleaning:
 
 
 def clean_mol(smiles: str, canonicalize: bool = True, flatten_stereochem: bool = False, neutralize: bool = True,
-                 check_for_uncommon_atoms: bool = True, desalt: bool = True, remove_solvent: bool = True,
-                 unrepeat: bool = True, sanitize: bool = True) -> (str, str):
+              check_for_uncommon_atoms: bool = True, desalt: bool = True, remove_solvent: bool = True,
+              unrepeat: bool = True, sanitize: bool = True) -> (str, str):
     """ Clean a SMILES string by canonicalizing, neutralizing, and getting rid of junk
 
     :param smiles: SMILES string
@@ -158,7 +159,7 @@ def has_unfamiliar_tokens(smiles, extra_patterns: list[str] = None) -> bool:
     :param extra_patterns: extra tokens to consider (default = None)
         e.g. metalloids: ['Si', 'As', 'Te', 'te', 'B', 'b']  (in ChEMBL33: B+b=0.23%, Si=0.13%, As=0.01%, Te+te=0.01%).
         Mind you that the order matters. If you place 'C' before 'Cl', all Cl tokens will actually be tokenized as C,
-        meaning that subsets should always come after superset strings, aka, place two letter elements first in the list.
+        meaning that subsets should always come after superset strings, aka, place two letter elements first in the list
     :return: True if the smiles string has unfamiliar tokens
     """
     tokens = smiles_tokenizer(smiles, extra_patterns)
@@ -215,7 +216,7 @@ def remove_common_solvents(smiles: str) -> str:
     return smiles
 
 
-def unrepeat_smiles(smiles: str):
+def unrepeat_smiles(smiles: str) -> str:
     """ if a SMILES string contains repeats of the same molecule, return a single one of them
 
     :param smiles: SMILES string
@@ -235,7 +236,7 @@ def _initialise_neutralisation_reactions() -> list[(str, str)]:
     return [(Chem.MolFromSmarts(x), Chem.MolFromSmiles(y, False)) for x, y in NEUTRALIZATION_PATTERNS]
 
 
-def sanitize_mol(smiles: str) -> str:
+def sanitize_mol(smiles: str) -> Union[str, None]:
     """ Sanitize a molecules with RDkit
 
     :param smiles: SMILES string
@@ -259,11 +260,11 @@ def sanitize_mol(smiles: str) -> str:
 
 
 def neutralize_mol(smiles: str) -> str:
-    """ Use several neutralisation reactions based on patterns defined in
-    _initialise_neutralisation_reactions to neutralize charged molecules
+    """ Use several neutralisation reactions based on patterns defined in NEUTRALIZATION_PATTERNS to neutralize charged
+    molecules
 
     :param smiles: SMILES string
-    :return: Neutralized molecule
+    :return: SMILES of the neutralized molecule
     """
     mol = Chem.MolFromSmiles(smiles)
 
@@ -280,4 +281,3 @@ def neutralize_mol(smiles: str) -> str:
     smiles = Chem.MolToSmiles(mol, canonical=True, isomericSmiles=True)
 
     return smiles
-

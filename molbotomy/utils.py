@@ -15,6 +15,8 @@ Jan 2024
 
 from rdkit import Chem
 from rdkit.Chem import AllChem
+from rdkit.Chem.rdchem import Mol
+from rdkit.Chem.Scaffolds.MurckoScaffold import GetScaffoldForMol, MakeScaffoldGeneric
 from collections import defaultdict
 from typing import Union
 import re
@@ -57,19 +59,18 @@ def smiles_to_mols(smiles: list[str], sanitize: bool = True, partial_charges: bo
     return mols
 
 
-def mols_to_smiles(mols) -> list[str]:
+def mols_to_smiles(mols: list[Mol]) -> list[str]:
+    """ Convert a list of RDKit molecules objects into a list of SMILES strings"""
     return [Chem.MolToSmiles(m) for m in mols]
 
 
-def mols_to_scaffolds(mols: list, scaffold_type: str = 'bismurcko') -> list:
+def mols_to_scaffolds(mols: list[Mol], scaffold_type: str = 'bismurcko') -> list:
     """ Convert a list of RDKit molecules objects into scaffolds (bismurcko or bismurcko_generic)
 
-    :param mols: RDKit mol objects, e.g., as obtained through smiles_to_mols()
+    :param mols: list of RDKit mol objects, e.g., as obtained through smiles_to_mols()
     :param scaffold_type: type of scaffold: bismurcko, bismurcko_generic (default = 'bismurcko')
     :return: RDKit mol objects of the scaffolds
     """
-    from rdkit.Chem.Scaffolds.MurckoScaffold import GetScaffoldForMol, MakeScaffoldGeneric
-
     if scaffold_type == 'bismurcko_generic':
         scaffolds = [MakeScaffoldGeneric(m) for m in mols]
     else:
@@ -104,7 +105,7 @@ def smiles_tokenizer(smiles: str, extra_patterns: list[str] = None) -> list[str]
     :param extra_patterns: extra tokens to consider (default = None)
         e.g. metalloids: ['Si', 'As', 'Te', 'te', 'B', 'b']  (in ChEMBL33: B+b=0.23%, Si=0.13%, As=0.01%, Te+te=0.01%).
         Mind you that the order matters. If you place 'C' before 'Cl', all Cl tokens will actually be tokenized as C,
-        meaning that subsets should always come after superset strings, aka, place two letter elements first in the list.
+        meaning that subsets should always come after superset strings, aka, place two letter elements first in the list
     :return: list of tokens extracted from the smiles string in their original order
     """
     base_smiles_patterns = "(\[|\]|insert_here|\(|\)|\.|=|#|-|\+|\\\\|\/|:|~|@|\?|>|\*|\$|\%\d{2}|\d)"
