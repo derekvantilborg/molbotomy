@@ -10,27 +10,15 @@
 
  
 ## Description
-Molbotomy is a easy-to-use toolkit to split molecular data into a train and test set, either in a balanced way, or by 
-creating out-of-distribution splits. 
+Molbotomy is a easy-to-use toolkit to clean, process, and split molecular data.
 
-## Modules
-- `Splitter`: Splits molecules into a train and test set
-- `MolecularDistanceMatrix`: Computes a pairwise distance matrix of molecules
-- `ClusterMolecularDistanceMatrix`: Clusters a distance matrix
+## Functionality
 - `SpringCleaning`: Clean up a set of molecules
-- `Eval`: Evaluate the train and test split and compute some statistics on them.
- 
+- `scaffold_split, random_split, stratified_random_split`: Splits molecules into a train and test set
+- `check_splits`: Do a sanity check on the train and test split and compute some statistics (and/or distances)
+- `MolecularDistanceMatrix`: Computes a pairwise distance matrix of molecules
+
 ## Usage
-
-**Splitting data:**
-```angular2html
-from molbotomy import Splitter
-
-smiles = ['NC(=O)c1ccc(N2CCCN(Cc3ccc(F)cc3)CC2)nc1', 'CC(=O)NCC1(C)CCC(c2ccccc2)(N(C)C)CC1', ...]
-
-S = Splitter(split_method='scaffold', mode='ood')
-train_idx, test_idx = S.split(smiles, ratio=0.2)
-```
 
 **Cleaning data:**
 ```angular2html
@@ -38,34 +26,61 @@ from molbotomy import SpringCleaning
 
 smiles = ['NC(=O)c1ccc(N2CCCN(Cc3ccc(F)cc3)CC2)nc1', 'CC(=O)NCC1(C)CCC(c2ccccc2)(N(C)C)CC1', ...]
 
-C = SprintCleaning(...)
+C = SpringCleaning(neutralize=True,
+                   check_for_uncommon_atoms=True,
+                   desalt=True,
+                   remove_solvent=True,
+                   sanitize=True,
+                   ...)
+
 smiles_clean = C.clean(smiles)
 
 C.summary()
 
-> bla bla bla
+> Parsed 10000 molecules of which 9964 successfully.
+  Failed to clean 36 molecules: {'unfamiliar token': 25, 'fragmented SMILES': 11}
+```
+
+**Splitting data:**
+```angular2html
+from molbotomy import scaffold_split, tools
+
+smiles = ['NC(=O)c1ccc(N2CCCN(Cc3ccc(F)cc3)CC2)nc1', 'CC(=O)NCC1(C)CCC(c2ccccc2)(N(C)C)CC1', ...]
+mols = tools.smiles_to_mols(smiles, sanitize=True)
+
+train_idx, test_idx = scaffold_split(mols, ratio=0.2)
+
 ```
 
 **Evaluating splits:**
 ```angular2html
-from molbotomy import Evaluator
+from molbotomy import check_splits
 
 train_smiles = ['NC(=O)c1ccc(N2CCCN(Cc3ccc(F)cc3)CC2)nc1', 'CC(=O)NCC1(C)CCC(c2ccccc2)(N(C)C)CC1', ...]
 test_smiles = ['CC(C)C[C@]1(c2cccc(O)c2)CCN(CC2CC2)C1', 'NC(=O)c1ccc(Oc2ccc(CN3CCCC3c3ccccc3)cc2)nc1', ...]
 
-E = Evaluator.eval(train_smiles, test_smiles)
-E.summary()
+check_splits(train_smiles, test_smiles)
+
+> Data leakage:
+      Found 0 intersecting SMILES between the train and test set.
+      Found 0 intersecting Bemis-Murcko scaffolds between the train and test set.
+      Found 0 intersecting stereoisomers between the train and test set.
+  Duplicates:
+      Found 0 duplicate SMILES in the train set.
+      Found 0 duplicate SMILES in the test set.
+  Stereoisomers:
+      Found 0 Stereoisomer SMILES in the train set.
+      Found 0 Stereoisomer SMILES in the test set.
 ```
 
  
-## Requirements
-Install dependencies from the provided env.yaml file.
+## Installation
 
-```conda env create -f env.yaml```
+
+```pip install molbotomy```
 
 This codebase uses Python 3.9 and depends on:
 - [RDKit](https://www.rdkit.org/) (2023.3.2)
-- [Scikit-learn](https://scikit-learn.org/) (1.3.0)
 
 <!-- License-->
 <h2 id="License">License</h2>
