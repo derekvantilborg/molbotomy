@@ -15,7 +15,6 @@ import numpy as np
 from molbotomy.utils import map_scaffolds
 from rdkit.Chem.rdchem import Mol
 from typing import Union
-import sys
 
 
 def random_split(x: Union[int, list, np.ndarray], ratio: float = 0.2, seed: int = 42) -> (np.ndarray, np.ndarray):
@@ -72,7 +71,6 @@ def scaffold_split(mols: list[Mol], ratio: float = 0.2, seed: int = 42) -> (np.n
     testsetsize = round(len(mols) * ratio)
 
     # Get scaffolds
-    print('Looking for scaffolds', flush=True, file=sys.stderr)
     scaffolds, scaff_map = map_scaffolds(mols)
 
     # When a set of scaffolds contains more than 1% of the total number of scaffolds, consider it a big set
