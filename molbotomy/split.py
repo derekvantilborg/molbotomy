@@ -1,7 +1,8 @@
 """
 Code to split a set of molecules
 
-- random_split: splits a list at random
+- random_split: splits data at random
+- stratified_random_split: splits data in a stratified manner
 - scaffold_split: splits molecules based on their scaffolds
 
 
@@ -12,33 +13,56 @@ Jan 2024
 
 import numpy as np
 from molbotomy.utils import map_scaffolds
+from rdkit.Chem.rdchem import Mol
+from typing import Union
 import sys
 
 
-def random_split(x, ratio: float = 0.2, seed: int = 42) -> (np.ndarray, np.ndarray):
+def random_split(x: Union[int, list, np.ndarray], ratio: float = 0.2, seed: int = 42) -> (np.ndarray, np.ndarray):
     """ Random split data into a train and test split
 
-    :param x: int or iterable to split
+    :param x: int representing the length of the data or iterable of the data itself to split
     :param ratio: test split ratio (default = 0.2, splits off 20% of the data into a test set)
     :param seed: random seed (default = 42)
     :return: train indices, test indices
     """
-
+    n = x if type(x) is int else len(x)
     rng = np.random.default_rng(seed=seed)
-    rand_idx = np.arange(len(x))
+    rand_idx = np.arange(n)
     rng.shuffle(rand_idx)
 
-    test_idx = rand_idx[:round(len(x)*ratio)]
-    train_idx = rand_idx[round(len(x)*ratio):]
+    test_idx = rand_idx[:round(n*ratio)]
+    train_idx = rand_idx[round(n*ratio):]
 
     return train_idx, test_idx
 
 
-def scaffold_split(mols: list, ratio: float = 0.2, seed: int = 42) -> (np.ndarray, np.ndarray):
+def stratified_random_split(y: np.ndarray, ratio: float = 0.2, seed: int = 42) -> (np.ndarray, np.ndarray):
+    """ Stratified random split data into a train and test split
+
+    :param y: class vector used to stratify the data
+    :param ratio: test split ratio (default = 0.2, splits off 20% of the data into a test set)
+    :param seed: random seed (default = 42)
+    :return: train indices, test indices
+    """
+    train_idx, test_idx = [], []
+
+    # for every class in the class vector, split into train and test
+    for c in set(y):
+        y_c = np.where(y == c)[0]
+        train_idx_y_c, test_idx_y_c = random_split(y_c, ratio=ratio, seed=seed)
+
+        train_idx.append(y_c[train_idx_y_c])
+        test_idx.append(y_c[test_idx_y_c])
+
+    return np.concatenate(train_idx), np.concatenate(test_idx)
+
+
+def scaffold_split(mols: list[Mol], ratio: float = 0.2, seed: int = 42) -> (np.ndarray, np.ndarray):
     """ Generates a random split based on Bismurcko scaffolds. Tries to deal with large set of scaffolds (sets
     containing >1% of the total number of scaffolds) by distributing those first and the smaller sets second.
 
-    :param mols: RDKit mol objects, e.g., as obtained through smiles_to_mols()
+    :param mols: a list of RDKit mol objects, e.g., as obtained through smiles_to_mols()
     :param ratio: test split ratio (default = 0.2, splits off a maximum of 20% of the data into a test set). Exact size
     of the split depends on scaffold set sizes.
     :param seed: random seed (default = 42)
@@ -94,9 +118,8 @@ def scaffold_split(mols: list, ratio: float = 0.2, seed: int = 42) -> (np.ndarra
     rng.shuffle(rand_idx)
     train_mols = np.array(train_mols)[rand_idx]
 
-    rand_idx = np.arange(len(train_mols))
+    rand_idx = np.arange(len(test_mols))
     rng.shuffle(rand_idx)
     test_mols = np.array(test_mols)[rand_idx]
 
     return train_mols, test_mols
-
