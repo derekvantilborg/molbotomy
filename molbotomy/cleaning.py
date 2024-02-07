@@ -55,12 +55,12 @@ class SpringCleaning:
         self.cleaned_molecules = []
         self.index_cleaned_molecules = []
 
-    def clean(self, smiles: list[str], progressbar: bool = True):
+    def clean(self, smiles: list[str], progressbar: bool = True) -> list[str]:
         """ Clean a list of SMILES strings
 
         :param smiles: SMILES that need cleaning
         :param progressbar: toggles the progressbar
-        :return:
+        :return: a list of all successfully parsed SMILES strings
         """
         if type(smiles) is not list:
             smiles = [smiles]
