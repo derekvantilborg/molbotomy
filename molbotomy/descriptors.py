@@ -13,7 +13,6 @@ Jan 2024
 """
 
 import numpy as np
-import pandas as pd
 from tqdm.auto import tqdm
 from typing import Union
 from rdkit.Chem.rdchem import Mol
@@ -21,7 +20,7 @@ from rdkit.DataStructs import ConvertToNumpyArray
 from rdkit.Chem import MACCSkeys
 from rdkit.Chem.AllChem import GetMorganFingerprintAsBitVect
 from rdkit.Chem import Descriptors
-from sklearn.preprocessing import normalize as normi
+from warnings import warn
 
 
 def rdkit_to_array(fp: list) -> np.ndarray:
@@ -73,8 +72,21 @@ def mols_to_descriptors(mols: list[Mol], progressbar: bool = False, normalize: b
     :param normalize: toggles min-max normalization
     :return: Numpy Array of all RDKit descriptors
     """
-    x = np.array(pd.DataFrame([Descriptors.CalcMolDescriptors(m) for m in tqdm(mols, disable=not progressbar)]))
+    x = np.array([list(Descriptors.CalcMolDescriptors(m).values()) for m in tqdm(mols, disable=not progressbar)])
     if normalize:
-        x = normi(x, axis=0, norm='max')
+        x = max_normalization(x)
+        if np.isnan(x).any():
+            warn("There were some nan-values introduced by 0-columns. Replaced all nan-values with 0")
+            x = np.nan_to_num(x, nan=0)
 
     return x
+
+
+def max_normalization(x: np.ndarray) -> np.ndarray:
+    """ Perform max normalization on a matrix x / x.max(axis=0), just like
+    sklearn.preprocessing.normalize(x, axis=0, norm='max')
+
+    :param x: array to be normalized
+    :return: normalized array
+    """
+    return x / x.max(axis=0)
