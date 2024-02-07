@@ -21,110 +21,38 @@ from typing import Union
 import numpy as np
 
 
-class SanityCheck:
+def check_splits(train_smiles: list[str], test_smiles: list[str]) -> None:
 
-    similarities = {'min': None, 'min_mean': None, 'max': None, 'max_mean': None, 'mean': None, 'median': None}
-    similarities_scaffold = {'min': None, 'min_mean': None, 'max': None, 'max_mean': None, 'mean': None, 'median': None}
+    # turn SMILES into a np.array
+    train_smiles = np.array(train_smiles)
+    test_smiles = np.array(test_smiles)
 
-    def __init__(self, train_smiles: list[str], test_smiles: list[str]) -> None:
-        """ run SanityCheck.evaluate_split() to check for data leakage, stereoisomerism, duplicates, and smimilarities
+    print(f"Evaluating {len(train_smiles)} train SMILES and {len(test_smiles)} test SMILES:")
 
-        :param train_smiles: SMILES strings of the train set
-        :param test_smiles: SMILES strings of the test set
-        """
-        self.train_smiles = np.array(train_smiles) if type(train_smiles) is list else train_smiles
-        self.test_smiles = np.array(test_smiles) if type(test_smiles) is list else test_smiles
+    # Check data leakage
+    intersection = intersecting_smiles(train_smiles, test_smiles)
+    scaffold_intersection = intersecting_scaffolds(train_smiles, test_smiles)
+    stereo_intersection = check_stereoisomer_intersection(train_smiles, test_smiles)
 
-        self.intersection = []
-        self.scaffold_intersection = []
-        self.stereo_intersection = []
-        self.train_duplicates = []
-        self.test_duplicates = []
-        self.train_stereoisomers = []
-        self.test_stereoisomers = []
+    print(f"Data leakage:\n"
+          f"\tFound {len(intersection)} intersecting SMILES between the train and test set.\n"
+          f"\tFound {len(scaffold_intersection)} intersecting Bemis-Murcko scaffolds between the train and "
+          f"test set.\n\tFound {len(stereo_intersection)} intersecting stereoisomers between the train and "
+          f"test set.")
 
-    def check_data_leakage(self):
+    # check duplicates
+    train_duplicates = find_duplicates(train_smiles)
+    test_duplicates = find_duplicates(test_smiles)
+    print(f"Duplicates:\n"
+          f"\tFound {len(train_duplicates)} duplicate SMILES in the train set.\n"
+          f"\tFound {len(test_duplicates)} duplicate SMILES in the test set.")
 
-        self.intersection = intersecting_smiles(self.train_smiles, self.test_smiles)
-        self.scaffold_intersection = intersecting_scaffolds(self.train_smiles, self.test_smiles)
-        self.check_stereoisomer_intersection()
-
-        print(f"Data leakage:\n"
-              f"\tFound {len(self.intersection )} intersecting SMILES between the train and test set.\n"
-              f"\tFound {len(self.scaffold_intersection )} intersecting Bemis-Murcko scaffolds between the train and "
-              f"test set.\n\tFound {len(self.stereo_intersection)} intersecting stereoisomers between the train and "
-              f"test set.")
-
-    def check_duplicates(self):
-
-        self.train_duplicates = find_duplicates(self.train_smiles)
-        self.test_duplicates = find_duplicates(self.test_smiles)
-
-        print(f"Duplicates:\n"
-              f"\tFound {len(self.train_duplicates)} duplicate SMILES in the train set.\n"
-              f"\tFound {len(self.test_duplicates)} duplicate SMILES in the test set.")
-
-    def similarity(self, scaffolds: bool = False):
-
-        X = train_test_sim(self.train_smiles, self.test_smiles, scaffolds=scaffolds)
-
-        if scaffolds:
-            self.similarities_scaffold = {'min': np.min(X), 'min_mean': np.min(np.mean(X, 1)),
-                                          'max': np.max(X), 'max_mean': np.max(np.mean(X, 1)),
-                                          'mean': np.mean(X), 'median': np.median(X)}
-
-            print(f"Scaffold Tanimoto similarity between the train and test set:\n"
-                  f"\tMean:\t{self.similarities_scaffold['mean']}\n"
-                  f"\tMedian:\t{self.similarities_scaffold['median']}\n"
-                  f"\tMin:\t{self.similarities_scaffold['min']}\n"
-                  f"\tMax:\t{self.similarities_scaffold['max']}")
-        else:
-            self.similarities = {'min': np.min(X), 'min_mean': np.min(np.mean(X, 1)),
-                                 'max': np.max(X), 'max_mean': np.max(np.mean(X, 1)),
-                                 'mean': np.mean(X), 'median': np.median(X)}
-
-            print(f"Tanimoto similarity between the train and test set:\n"
-                  f"\tMean:\t{self.similarities['mean']}\n"
-                  f"\tMedian:\t{self.similarities['median']}\n"
-                  f"\tMin:\t{self.similarities['min']}\n"
-                  f"\tMax:\t{self.similarities['max']}")
-
-    def check_stereoisomer_occurance(self):
-
-        # Remove duplicates
-        tr_set = set(canonicalize_smiles(self.train_smiles))
-        tst_set = set(canonicalize_smiles(self.test_smiles))
-
-        # Flatten molecules and canonicalize again
-        tr_flat = np.array(canonicalize_smiles([flatten_stereochemistry(smi) for smi in tr_set]))
-        tst_flat = np.array(canonicalize_smiles([flatten_stereochemistry(smi) for smi in tst_set]))
-
-        self.train_stereoisomers = find_duplicates(tr_flat)
-        self.test_stereoisomers = find_duplicates(tst_flat)
-
-        print(f"Stereoisomers:\n"
-              f"\tFound {len(self.train_stereoisomers)} Stereoisomer SMILES in the train set.\n"
-              f"\tFound {len(self.test_stereoisomers)} Stereoisomer SMILES in the test set.")
-
-    def check_stereoisomer_intersection(self):
-
-        tr_orignal = set(canonicalize_smiles(self.train_smiles))
-        tst_original = set(canonicalize_smiles(self.test_smiles))
-
-        tr_flat = np.array(canonicalize_smiles([flatten_stereochemistry(smi) for smi in tr_orignal]))
-        tst_flat = np.array(canonicalize_smiles([flatten_stereochemistry(smi) for smi in tst_original]))
-
-        self.stereo_intersection = intersecting_smiles(tr_orignal, tst_flat) + intersecting_smiles(tst_original, tr_flat)
-
-        return self.stereo_intersection
-
-    def evaluate_split(self):
-        self.check_data_leakage()
-        self.check_duplicates()
-        self.check_stereoisomer_occurance()
-        self.check_stereoisomer_intersection()
-        self.similarity(scaffolds=False)
-        self.similarity(scaffolds=True)
+    # check stereoisomer occurance
+    train_stereoisomers = check_stereoisomer_occurance(train_smiles)
+    test_stereoisomers =  check_stereoisomer_occurance(test_smiles)
+    print(f"Stereoisomers:\n"
+          f"\tFound {len(train_stereoisomers)} Stereoisomer SMILES in the train set.\n"
+          f"\tFound {len(test_stereoisomers)} Stereoisomer SMILES in the test set.")
 
 
 def intersecting_smiles(smiles_a: Union[np.ndarray[str], list[str]], smiles_b: Union[np.ndarray[str], list[str]]) -> \
@@ -171,6 +99,43 @@ def find_duplicates(smiles):
     dupes = [smi for smi in smiles if smi in seen or seen.add(smi)]
 
     return dupes
+
+
+def check_stereoisomer_intersection(train_smiles: list[str], test_smiles: list[str]) -> list[str]:
+    """ Checks if molecules in the train set have stereoisomers in the test set and vice verca
+
+    :param train_smiles: list of SMILES strings
+    :param test_smiles: list of SMILES strings
+    :return: list of intersecting stereoisomers
+    """
+    tr_orignal = set(canonicalize_smiles(train_smiles))
+    tst_original = set(canonicalize_smiles(test_smiles))
+
+    tr_flat = np.array(canonicalize_smiles([flatten_stereochemistry(smi) for smi in tr_orignal]))
+    tst_flat = np.array(canonicalize_smiles([flatten_stereochemistry(smi) for smi in tst_original]))
+
+    stereo_intersection = intersecting_smiles(tr_orignal, tst_flat) + intersecting_smiles(tst_original, tr_flat)
+
+    return stereo_intersection
+
+
+def check_stereoisomer_occurance(smiles: list[str]) -> list[str]:
+    """ Look for SMILES that have a stereoisomer in the same set
+
+    :param smiles: list of SMILES strings
+    :return: duplicated stereoisomers
+    """
+
+    # Remove duplicates
+    smiles = set(canonicalize_smiles(smiles))
+
+    # Flatten molecules and canonicalize again
+    smiles_flat = np.array(canonicalize_smiles([flatten_stereochemistry(smi) for smi in smiles]))
+
+    # look for duplicated molecules
+    stereoisomers = find_duplicates(smiles_flat)
+
+    return stereoisomers
 
 
 def train_test_sim(train_smiles: list[str], test_smiles: list[str], progressbar: bool = False, scaffolds: bool = False,
